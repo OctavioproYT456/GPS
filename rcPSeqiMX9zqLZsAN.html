@@ -1,0 +1,368 @@
+<html><head><base href="https://unpkg.com/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>GPS Responsivo con OpenStreetMap</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-geosearch@3.7.0/dist/geosearch.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css" />
+<style>
+  body, html {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+  #map {
+    flex-grow: 1;
+    width: 100%;
+  }
+  #info {
+    padding: 10px;
+    background-color: #f0f0f0;
+    overflow: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .icon-button {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    transition: background-color 0.3s;
+  }
+  .icon-button:hover {
+    background-color: #45a049;
+  }
+  #status, #coordinates {
+    margin: 5px 0;
+    word-wrap: break-word;
+  }
+  .leaflet-control-geosearch {
+    width: calc(100% - 20px);
+    max-width: none;
+    margin: 10px;
+  }
+  .leaflet-control-geosearch form {
+    background: none;
+    padding: 0;
+  }
+  .leaflet-control-geosearch form input {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+  }
+  .leaflet-control-geosearch form button {
+    display: none;
+  }
+  .leaflet-control-geosearch .results {
+    width: 100%;
+  }
+  .leaflet-control-geosearch .results > * {
+    padding: 10px;
+    background-color: white;
+    border-bottom: 1px solid #ccc;
+    cursor: pointer;
+  }
+  .leaflet-control-geosearch .results > *:hover {
+    background-color: #f0f0f0;
+  }
+  .custom-routing-container {
+    position: absolute;
+    bottom: 20px;
+    right: 10px;
+    z-index: 1000;
+  }
+  .leaflet-routing-container {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background-color: white;
+    padding: 10px;
+    border-radius: 4px;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.65);
+    max-height: calc(100% - 120px);
+    overflow-y: auto;
+    width: 300px;
+    transition: transform 0.3s ease-in-out;
+  }
+  .leaflet-routing-container.hidden {
+    transform: translateX(310px);
+  }
+  .toggle-routing-container {
+    position: absolute;
+    top: 10px;
+    right: 320px;
+    z-index: 1001;
+  }
+  @media (max-width: 600px) {
+    #info {
+      font-size: 14px;
+    }
+    .icon-button {
+      width: 36px;
+      height: 36px;
+      font-size: 18px;
+    }
+    .custom-routing-container {
+      bottom: 10px;
+      right: 10px;
+    }
+    .leaflet-routing-container {
+      width: calc(100% - 20px);
+      max-height: 50%;
+      top: auto;
+      bottom: 10px;
+      left: 10px;
+      right: 10px;
+    }
+    .leaflet-routing-container.hidden {
+      transform: translateY(100%);
+    }
+    .toggle-routing-container {
+      top: auto;
+      bottom: calc(50% + 20px);
+      right: 10px;
+    }
+  }
+</style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="info">
+    <button id="get-location" class="icon-button" title="Obtener ubicación actual">
+      <i class="fas fa-location-dot"></i>
+    </button>
+    <div>
+      <p id="status"></p>
+      <p id="coordinates"></p>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+  <script src="https://unpkg.com/leaflet-geosearch@3.7.0/dist/geosearch.umd.js"></script>
+  <script>
+    let map;
+    let marker;
+    let routingControl;
+    let searchControl;
+    let customRoutingContainer;
+    let toggleRoutingButton;
+
+    function initMap() {
+      map = L.map('map', {
+        center: [0, 0],
+        zoom: 2,
+        zoomControl: false
+      });
+
+      L.control.zoom({
+        position: 'bottomright'
+      }).addTo(map);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
+
+      const provider = new GeoSearch.OpenStreetMapProvider();
+      searchControl = new GeoSearch.GeoSearchControl({
+        provider: provider,
+        style: 'bar',
+        autoComplete: true,
+        autoCompleteDelay: 250,
+        showMarker: false,
+        showPopup: false,
+        updateMap: true,
+        autoClose: true,
+        keepResult: true,
+        searchLabel: 'Buscar ubicación'
+      });
+      map.addControl(searchControl);
+
+      customRoutingContainer = L.DomUtil.create('div', 'custom-routing-container');
+      customRoutingContainer.style.display = 'none';
+      map.getContainer().appendChild(customRoutingContainer);
+
+      toggleRoutingButton = L.DomUtil.create('button', 'icon-button toggle-routing-container');
+      toggleRoutingButton.innerHTML = '<i class="fas fa-chevron-left"></i>';
+      toggleRoutingButton.title = 'Ocultar/Mostrar indicaciones';
+      toggleRoutingButton.style.display = 'none';
+      map.getContainer().appendChild(toggleRoutingButton);
+
+      toggleRoutingButton.addEventListener('click', toggleRoutingContainer);
+
+      map.on('geosearch/showlocation', function(result) {
+        if (result && result.location) {
+          const latlng = result.location;
+          if (marker) {
+            map.removeLayer(marker);
+          }
+          marker = L.marker([latlng.y, latlng.x]).addTo(map)
+            .bindPopup(result.location.label)
+            .openPopup();
+
+          if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+              (position) => {
+                const userLat = position.coords.latitude;
+                const userLng = position.coords.longitude;
+                showRoutingButton([userLat, userLng], [latlng.y, latlng.x]);
+              },
+              (error) => {
+                console.error("Error obteniendo la ubicación del usuario:", error);
+              }
+            );
+          }
+        }
+      });
+    }
+
+    function getCurrentLocation() {
+      const status = document.getElementById('status');
+      const coordinates = document.getElementById('coordinates');
+
+      status.textContent = 'Obteniendo ubicación...';
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+
+            status.textContent = 'Ubicación encontrada.';
+            coordinates.textContent = `Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}`;
+
+            map.setView([lat, lng], 15);
+
+            if (marker) {
+              map.removeLayer(marker);
+            }
+
+            marker = L.marker([lat, lng]).addTo(map)
+              .bindPopup('Tu ubicación actual')
+              .openPopup();
+          },
+          (error) => {
+            status.textContent = `Error: ${getGeolocationErrorMessage(error)}`;
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 5000,
+            maximumAge: 0
+          }
+        );
+      } else {
+        status.textContent = 'Error: Tu navegador no soporta geolocalización.';
+      }
+    }
+
+    function getGeolocationErrorMessage(error) {
+      switch(error.code) {
+        case error.PERMISSION_DENIED:
+          return "Usuario denegó la solicitud de geolocalización.";
+        case error.POSITION_UNAVAILABLE:
+          return "La información de ubicación no está disponible.";
+        case error.TIMEOUT:
+          return "Se agotó el tiempo de espera para obtener la ubicación.";
+        case error.UNKNOWN_ERROR:
+          return "Ocurrió un error desconocido.";
+      }
+    }
+
+    function showRoutingButton(start, end) {
+      customRoutingContainer.innerHTML = '';
+      const routeButton = L.DomUtil.create('button', 'icon-button', customRoutingContainer);
+      routeButton.innerHTML = '<i class="fas fa-route"></i>';
+      routeButton.title = 'Obtener indicaciones';
+      routeButton.onclick = function() {
+        calculateRoute(start, end);
+      };
+      customRoutingContainer.style.display = 'block';
+    }
+
+    function calculateRoute(start, end) {
+      if (routingControl) {
+        map.removeControl(routingControl);
+      }
+
+      routingControl = L.Routing.control({
+        waypoints: [
+          L.latLng(start[0], start[1]),
+          L.latLng(end[0], end[1])
+        ],
+        routeWhileDragging: true,
+        addWaypoints: false,
+        lineOptions: {
+          styles: [{color: 'yellow', opacity: 0.8, weight: 6}]
+        },
+        fitSelectedRoutes: true,
+        showAlternatives: false
+      }).addTo(map);
+
+      routingControl.on('routesfound', function(e) {
+        const routes = e.routes;
+        const summary = routes[0].summary;
+        L.popup()
+          .setLatLng(end)
+          .setContent(`Distancia: ${(summary.totalDistance / 1000).toFixed(2)} km<br>Tiempo estimado: ${Math.round(summary.totalTime / 60)} minutos`)
+          .openOn(map);
+        
+        toggleRoutingButton.style.display = 'block';
+        
+        const container = document.querySelector('.leaflet-routing-container');
+        if (container) {
+          container.classList.remove('hidden');
+          container.style.display = 'block'; // Ensure the container is visible
+          toggleRoutingButton.innerHTML = '<i class="fas fa-chevron-left"></i>';
+        }
+      });
+
+      customRoutingContainer.style.display = 'none';
+    }
+
+    function toggleRoutingContainer() {
+      const container = document.querySelector('.leaflet-routing-container');
+      if (container) {
+        container.classList.toggle('hidden');
+        if (container.classList.contains('hidden')) {
+          container.style.display = 'none';
+          toggleRoutingButton.innerHTML = '<i class="fas fa-chevron-right"></i>';
+        } else {
+          container.style.display = 'block';
+          toggleRoutingButton.innerHTML = '<i class="fas fa-chevron-left"></i>';
+        }
+      } else {
+        console.warn('Routing container not found');
+      }
+    }
+
+    function handleResize() {
+      const mapHeight = window.innerHeight - document.getElementById('info').offsetHeight;
+      document.getElementById('map').style.height = `${mapHeight}px`;
+      if (map) {
+        map.invalidateSize();
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', (event) => {
+      initMap();
+      handleResize();
+      document.getElementById('get-location').addEventListener('click', getCurrentLocation);
+      window.addEventListener('resize', handleResize);
+    });
+  </script>
+</body>
+</html>
